@@ -1,0 +1,43 @@
+/* App.css */
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #222;          /* sfondo neutro */
+  display: flex;
+  justify-content: center;   /* centra il wrapper orizzontalmente */
+  align-items: center;       /* centra il wrapper verticalmente */
+  overflow: hidden;
+}
+
+/* contenitore esattamente della dimensione del canvas */
+.wrapper {
+  position: relative;        /* per posizionare la lente in assoluto rispetto al canvas */
+  width: 400px;              /* deve coincidere con SIZE in App.jsx */
+  height: 400px;
+}
+
+/* canvas della griglia */
+.base-canvas {
+  display: block;
+  width: 400px;              /* uguale a SIZE */
+  height: 400px;
+  background: white;
+}
+
+/* canvas sorgente invisibile (solo per il drawImage) */
+.hidden-canvas {
+  display: none;
+}
+
+/* lente: posizionata rispetto al wrapper (e quindi al canvas) */
+.lens-canvas {
+  position: absolute;
+  top: 0;                    /* origine uguale a quella del canvas */
+  left: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 0, 0.8);
+  pointer-events: none;      /* non intercetta click/tap */
+  box-shadow: 0 0 12px rgba(0,0,0,0.4);
+}
