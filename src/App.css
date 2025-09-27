@@ -1,41 +1,23 @@
-/* Impedisce allo smartphone di gestire lo zoom nativo
-   e di rubare gli eventi touch (fondamentale per il pinch personalizzato) */
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  width: 100%;
-  overscroll-behavior: none;   /* evita lo “scroll elastico” su iOS/Android */
-  touch-action: none;          /* disabilita i gesti di zoom nativi */
-  -webkit-user-select: none;   /* evita selezione testo */
-  user-select: none;
-  background: #f0f0f0;         /* colore di sfondo neutro */
-}
-
-/* Contenitore principale che centra il canvas */
 .wrapper {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
-  height: 100vh;
-  width: 100vw;
-  touch-action: none;          /* necessario anche qui */
-  -ms-touch-action: none;
+  gap: 10px;
+  min-height: 100vh;
+  background: #fff;
 }
 
-/* Canvas di gioco */
-.base-canvas {
-  background: #fff;            /* colore della griglia */
-  border: none;
-  touch-action: none;          /* importantissimo per ricevere i pinch */
-  -ms-touch-action: none;
-  image-rendering: pixelated;  /* mantiene nitide le linee durante lo zoom */
+/* Mini-griglia ora cliccabile: stessa dimensione della principale */
+.mini-canvas {
+  width: 90vmin;
+  height: 90vmin;
+  background: white;
+  border: 1px solid #ccc;
 }
+
 .base-canvas {
-  width: 90vmin;       /* sempre quadrato e centrato */
+  width: 90vmin;
   height: 90vmin;
   touch-action: none;
-  -ms-touch-action: none;
   image-rendering: pixelated;
 }
-

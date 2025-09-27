@@ -3,14 +3,15 @@ import "./App.css";
 
 const INNER = 10;
 const BORDER = 1;
-const GRID = INNER + 2 * BORDER;   // totale 12
+const GRID = INNER + 2 * BORDER;
 const SIZE = 480;
 const NODE_RADIUS = 6;
-const EDGE_END_GAP = 0.02;         // 96% di lunghezza
+const EDGE_END_GAP = 0.02;
 const EDGE_SNAP = 14;
 
 export default function App() {
-  const canvasRef = useRef(null);
+  const mainCanvasRef = useRef(null);
+  const miniCanvasRef = useRef(null);
 
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -19,7 +20,7 @@ export default function App() {
   const [lastPinch, setLastPinch] = useState(null);
   const TAP_MAX = 6;
 
-  // --- stato iniziale: contorno 10x10 interno attivo ---
+  // Stato iniziale: contorno 10x10 attivo
   const initHorizontal = Array.from({ length: GRID + 1 }, () => Array(GRID).fill(0));
   const initVertical   = Array.from({ length: GRID }, () => Array(GRID + 1).fill(0));
   for (let c = BORDER; c < GRID - BORDER; c++) {
@@ -42,13 +43,12 @@ export default function App() {
 
   const cell = SIZE / GRID;
 
-  // ---------- Disegno ----------
-  const draw = () => {
-    const ctx = canvasRef.current.getContext("2d");
+  // ---------- Disegno griglia ----------
+  const drawGrid = (ctx, zoom = 1, off = { x: 0, y: 0 }) => {
     ctx.save();
-    ctx.clearRect(0, 0, SIZE, SIZE);
-    ctx.scale(scale, scale);
-    ctx.translate(offset.x / scale, offset.y / scale);
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.scale(zoom, zoom);
+    ctx.translate(off.x / zoom, off.y / zoom);
 
     // griglia interna sottile
     ctx.strokeStyle = "#666";
@@ -68,8 +68,8 @@ export default function App() {
       ctx.stroke();
     }
 
-    // bordi attivi
     const gap = cell * EDGE_END_GAP;
+    // linee
     for (let r = 0; r <= GRID; r++) {
       for (let c = 0; c < GRID; c++) {
         const s = horizontal[r][c];
@@ -142,33 +142,42 @@ export default function App() {
     ctx.restore();
   };
 
-  useEffect(() => { draw(); }, [scale, offset, horizontal, vertical, nodes]);
+  // ---------- Ridisegno principale e mini ----------
+  useEffect(() => {
+    drawGrid(mainCanvasRef.current.getContext("2d"), scale, offset);
 
+    // Miniatura: stessa dimensione, nessuna scala extra
+    const mctx = miniCanvasRef.current.getContext("2d");
+    mctx.clearRect(0, 0, mctx.canvas.width, mctx.canvas.height);
+    drawGrid(mctx, 1, { x: 0, y: 0 });
+  }, [scale, offset, horizontal, vertical, nodes]);
+
+  // ---------- Interazioni ----------
   const nextEdgeState = v => (v + 1) % 3;
   const nextNodeState = v => (v + 1) % 3;
 
-  // --- conversione coordinate, corretta per ogni scala CSS ---
-  const toGrid = (clientX, clientY) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = canvasRef.current.width  / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
+  // ora accetta un parametro 'target' per usare main o mini canvas
+  const toGrid = (clientX, clientY, target = mainCanvasRef) => {
+    const rect = target.current.getBoundingClientRect();
+    const scaleX = target.current.width  / rect.width;
+    const scaleY = target.current.height / rect.height;
+    const isMain = target === mainCanvasRef;
     return {
-      x: (clientX - rect.left) * scaleX / scale - offset.x / scale,
-      y: (clientY - rect.top)  * scaleY / scale - offset.y / scale
+      x: (clientX - rect.left) * scaleX / (isMain ? scale : 1) - (isMain ? offset.x / scale : 0),
+      y: (clientY - rect.top)  * scaleY / (isMain ? scale : 1) - (isMain ? offset.y / scale : 0)
     };
   };
 
   const toggleAt = (gx, gy) => {
-    const c = Math.min(Math.floor(gx / cell), GRID - 1);
-    const r = Math.min(Math.floor(gy / cell), GRID - 1);
-    const dx = gx - c * cell;
-    const dy = gy - r * cell;
+    const c = Math.min(Math.floor(gx / (SIZE / GRID)), GRID - 1);
+    const r = Math.min(Math.floor(gy / (SIZE / GRID)), GRID - 1);
+    const dx = gx - c * (SIZE / GRID);
+    const dy = gy - r * (SIZE / GRID);
 
-    // nodo
-    const nodeCol = Math.round(gx / cell);
-    const nodeRow = Math.round(gy / cell);
-    const nx = nodeCol * cell;
-    const ny = nodeRow * cell;
+    const nodeCol = Math.round(gx / (SIZE / GRID));
+    const nodeRow = Math.round(gy / (SIZE / GRID));
+    const nx = nodeCol * (SIZE / GRID);
+    const ny = nodeRow * (SIZE / GRID);
     if (Math.hypot(gx - nx, gy - ny) <= NODE_RADIUS + 4) {
       const newN = nodes.map(row => [...row]);
       newN[nodeRow][nodeCol] = nextNodeState(newN[nodeRow][nodeCol]);
@@ -176,11 +185,10 @@ export default function App() {
       return;
     }
 
-    // bordo
     const distLeft   = dx;
-    const distRight  = cell - dx;
+    const distRight  = (SIZE / GRID) - dx;
     const distTop    = dy;
-    const distBottom = cell - dy;
+    const distBottom = (SIZE / GRID) - dy;
     const min = Math.min(distLeft, distRight, distTop, distBottom);
     if (min <= EDGE_SNAP) {
       const newH = horizontal.map(row => [...row]);
@@ -194,23 +202,19 @@ export default function App() {
     }
   };
 
-  // --- zoom e pan mouse ---
   const handleWheel = e => {
     e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    setScale(s => Math.min(5, Math.max(0.5, s * factor)));
+    setScale(s => Math.min(5, Math.max(0.5, s * (e.deltaY < 0 ? 1.1 : 0.9))));
   };
   const handleMouseDown = e => {
     setDown({ x: e.clientX, y: e.clientY });
     setDrag({ x: e.clientX, y: e.clientY, startX: offset.x, startY: offset.y });
   };
   const handleMouseMove = e => {
-    if (drag) {
-      setOffset({
-        x: drag.startX + (e.clientX - drag.x),
-        y: drag.startY + (e.clientY - drag.y)
-      });
-    }
+    if (drag) setOffset({
+      x: drag.startX + (e.clientX - drag.x),
+      y: drag.startY + (e.clientY - drag.y)
+    });
   };
   const handleMouseUp = e => {
     setDrag(null);
@@ -224,14 +228,12 @@ export default function App() {
     setDown(null);
   };
 
-  // --- pinch-to-zoom mobile ---
   const distance = (t1, t2) =>
     Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 
   const handleTouchStart = e => {
     if (e.touches.length === 2) {
-      const d = distance(e.touches[0], e.touches[1]);
-      setLastPinch({ dist: d, scale });
+      setLastPinch({ dist: distance(e.touches[0], e.touches[1]), scale });
     } else if (e.touches.length === 1) {
       setDown({ x: e.touches[0].clientX, y: e.touches[0].clientY });
       setDrag({
@@ -242,12 +244,10 @@ export default function App() {
       });
     }
   };
-
   const handleTouchMove = e => {
     if (e.touches.length === 2 && lastPinch) {
       const d = distance(e.touches[0], e.touches[1]);
-      const factor = d / lastPinch.dist;
-      setScale(Math.min(5, Math.max(0.5, lastPinch.scale * factor)));
+      setScale(Math.min(5, Math.max(0.5, lastPinch.scale * (d / lastPinch.dist))));
     } else if (e.touches.length === 1 && drag) {
       setOffset({
         x: drag.startX + (e.touches[0].clientX - drag.x),
@@ -255,39 +255,42 @@ export default function App() {
       });
     }
   };
-
   const handleTouchEnd = e => {
     if (e.touches.length < 2) setLastPinch(null);
-    if (e.touches.length === 0) {
-      setDrag(null);
-      setDown(null);
-    }
+    if (e.touches.length === 0) { setDrag(null); setDown(null); }
   };
 
   return (
-    <div
-      className="wrapper"
-      style={{
-        touchAction: "none",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        minHeight: "100vh"
-      }}
-      onWheel={handleWheel}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
+    <div className="wrapper" style={{ flexDirection: "column", gap: "10px" }}>
+      {/* mini-griglia ora cliccabile */}
       <canvas
-        ref={canvasRef}
+        ref={miniCanvasRef}
+        width={SIZE}
+        height={SIZE}
+        className="mini-canvas"
+        onMouseDown={(e) => {
+          const { x, y } = toGrid(e.clientX, e.clientY, miniCanvasRef);
+          toggleAt(x, y);
+        }}
+        onTouchStart={(e) => {
+          const t = e.touches[0];
+          const { x, y } = toGrid(t.clientX, t.clientY, miniCanvasRef);
+          toggleAt(x, y);
+        }}
+      />
+      {/* canvas principale interattivo */}
+      <canvas
+        ref={mainCanvasRef}
         width={SIZE}
         height={SIZE}
         className="base-canvas"
-        style={{ touchAction: "none" }}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       />
     </div>
   );
