@@ -1,43 +1,41 @@
-/* App.css */
-
-html, body, #root {
+/* Impedisce allo smartphone di gestire lo zoom nativo
+   e di rubare gli eventi touch (fondamentale per il pinch personalizzato) */
+html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: #222;          /* sfondo neutro */
-  display: flex;
-  justify-content: center;   /* centra il wrapper orizzontalmente */
-  align-items: center;       /* centra il wrapper verticalmente */
-  overflow: hidden;
+  width: 100%;
+  overscroll-behavior: none;   /* evita lo “scroll elastico” su iOS/Android */
+  touch-action: none;          /* disabilita i gesti di zoom nativi */
+  -webkit-user-select: none;   /* evita selezione testo */
+  user-select: none;
+  background: #f0f0f0;         /* colore di sfondo neutro */
 }
 
-/* contenitore esattamente della dimensione del canvas */
+/* Contenitore principale che centra il canvas */
 .wrapper {
-  position: relative;        /* per posizionare la lente in assoluto rispetto al canvas */
-  width: 400px;              /* deve coincidere con SIZE in App.jsx */
-  height: 400px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  width: 100vw;
+  touch-action: none;          /* necessario anche qui */
+  -ms-touch-action: none;
 }
 
-/* canvas della griglia */
+/* Canvas di gioco */
 .base-canvas {
-  display: block;
-  width: 400px;              /* uguale a SIZE */
-  height: 400px;
-  background: white;
+  background: #fff;            /* colore della griglia */
+  border: none;
+  touch-action: none;          /* importantissimo per ricevere i pinch */
+  -ms-touch-action: none;
+  image-rendering: pixelated;  /* mantiene nitide le linee durante lo zoom */
+}
+.base-canvas {
+  width: 90vmin;       /* sempre quadrato e centrato */
+  height: 90vmin;
+  touch-action: none;
+  -ms-touch-action: none;
+  image-rendering: pixelated;
 }
 
-/* canvas sorgente invisibile (solo per il drawImage) */
-.hidden-canvas {
-  display: none;
-}
-
-/* lente: posizionata rispetto al wrapper (e quindi al canvas) */
-.lens-canvas {
-  position: absolute;
-  top: 0;                    /* origine uguale a quella del canvas */
-  left: 0;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 0, 0.8);
-  pointer-events: none;      /* non intercetta click/tap */
-  box-shadow: 0 0 12px rgba(0,0,0,0.4);
-}

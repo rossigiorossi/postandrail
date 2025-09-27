@@ -1,271 +1,294 @@
 import { useRef, useEffect, useState } from "react";
 import "./App.css";
 
-const SIZE = 400;
-const GRID = 10;
-const LENS_DIAM = 225;   // +50% rispetto a prima
-const ZOOM = 3;          // ingrandimento 3x
-const EDGE_SNAP = 10;
+const INNER = 10;
+const BORDER = 1;
+const GRID = INNER + 2 * BORDER;   // totale 12
+const SIZE = 480;
 const NODE_RADIUS = 6;
-const EDGE_END_GAP = 0.1;
+const EDGE_END_GAP = 0.02;         // 96% di lunghezza
+const EDGE_SNAP = 14;
 
 export default function App() {
-  const baseRef = useRef(null);
-  const srcRef  = useRef(null);
-  const lensRef = useRef(null);
+  const canvasRef = useRef(null);
 
-  const [showLens, setShowLens] = useState(true);          // lente sempre visibile
-  const [lensPos, setLensPos]   = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [drag, setDrag] = useState(null);
+  const [down, setDown] = useState(null);
+  const [lastPinch, setLastPinch] = useState(null);
+  const TAP_MAX = 6;
 
-  // 0=default,1=rosso,2=verde
-  const [horizontal, setHorizontal] = useState(
-    Array.from({ length: GRID + 1 }, () => Array(GRID).fill(0))
-  );
-  const [vertical, setVertical] = useState(
-    Array.from({ length: GRID }, () => Array(GRID + 1).fill(0))
-  );
+  // --- stato iniziale: contorno 10x10 interno attivo ---
+  const initHorizontal = Array.from({ length: GRID + 1 }, () => Array(GRID).fill(0));
+  const initVertical   = Array.from({ length: GRID }, () => Array(GRID + 1).fill(0));
+  for (let c = BORDER; c < GRID - BORDER; c++) {
+    initHorizontal[BORDER][c]        = 1;
+    initHorizontal[GRID - BORDER][c] = 1;
+  }
+  for (let r = BORDER; r < GRID - BORDER; r++) {
+    initVertical[r][BORDER]          = 1;
+    initVertical[r][GRID - BORDER]   = 1;
+  }
+  const initNodes = Array.from({ length: GRID + 1 }, () => Array(GRID + 1).fill(0));
+  initNodes[BORDER][BORDER]               = 1;
+  initNodes[BORDER][GRID - BORDER]        = 1;
+  initNodes[GRID - BORDER][BORDER]        = 1;
+  initNodes[GRID - BORDER][GRID - BORDER] = 1;
 
-  // nodi: 0=nessuno,1=cerchio pieno viola,2=cerchio solo contorno
-  const [nodes, setNodes] = useState(
-    Array.from({ length: GRID + 1 }, () => Array(GRID + 1).fill(0))
-  );
+  const [horizontal, setHorizontal] = useState(initHorizontal);
+  const [vertical,   setVertical]   = useState(initVertical);
+  const [nodes,      setNodes]      = useState(initNodes);
 
   const cell = SIZE / GRID;
 
-  // ---------------- Disegno griglia, bordi, nodi ----------------
-  const drawGridWithState = (ctx, h = horizontal, v = vertical, n = nodes) => {
+  // ---------- Disegno ----------
+  const draw = () => {
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.save();
     ctx.clearRect(0, 0, SIZE, SIZE);
-    ctx.font = `${cell * 0.35}px sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
+    ctx.scale(scale, scale);
+    ctx.translate(offset.x / scale, offset.y / scale);
 
-    // griglia base + numeri
-    ctx.strokeStyle = "#555";
-    ctx.lineWidth = 1;
-    for (let r = 0; r < GRID; r++) {
-      for (let c = 0; c < GRID; c++) {
-        const x = c * cell;
-        const y = r * cell;
-        ctx.strokeRect(x, y, cell, cell);
-        ctx.fillText(r * GRID + c + 1, x + cell / 2, y + cell / 2);
-      }
+    // griglia interna sottile
+    ctx.strokeStyle = "#666";
+    ctx.lineWidth = 0.5;
+    for (let r = BORDER + 1; r < GRID - BORDER; r++) {
+      const y = r * cell;
+      ctx.beginPath();
+      ctx.moveTo(BORDER * cell, y);
+      ctx.lineTo((GRID - BORDER) * cell, y);
+      ctx.stroke();
+    }
+    for (let c = BORDER + 1; c < GRID - BORDER; c++) {
+      const x = c * cell;
+      ctx.beginPath();
+      ctx.moveTo(x, BORDER * cell);
+      ctx.lineTo(x, (GRID - BORDER) * cell);
+      ctx.stroke();
     }
 
-    // bordi orizzontali con gap 10%
+    // bordi attivi
+    const gap = cell * EDGE_END_GAP;
     for (let r = 0; r <= GRID; r++) {
       for (let c = 0; c < GRID; c++) {
-        if (h[r][c] !== 0) {
-          const x1 = c * cell + cell * EDGE_END_GAP;
-          const x2 = (c + 1) * cell - cell * EDGE_END_GAP;
-          const y  = r * cell;
+        const s = horizontal[r][c];
+        if (!s) continue;
+        if (r < BORDER || r > GRID - BORDER || c < BORDER || c >= GRID - BORDER) continue;
+        const x1 = c * cell + gap;
+        const x2 = (c + 1) * cell - gap;
+        const y  = r * cell;
+        ctx.beginPath();
+        ctx.strokeStyle = s === 1 ? "black" : "#555";
+        ctx.lineWidth   = s === 1 ? 4 : 2;
+        ctx.moveTo(x1, y);
+        ctx.lineTo(x2, y);
+        ctx.stroke();
+        if (s === 2) {
           ctx.beginPath();
-          ctx.strokeStyle = h[r][c] === 1 ? "red" : "green";
-          ctx.lineWidth = 4;
-          ctx.moveTo(x1, y);
-          ctx.lineTo(x2, y);
+          ctx.strokeStyle = "black";
+          ctx.lineWidth = 2;
+          ctx.moveTo((x1 + x2) / 2 - 5, y - 5);
+          ctx.lineTo((x1 + x2) / 2 + 5, y + 5);
           ctx.stroke();
         }
       }
     }
-
-    // bordi verticali con gap 10%
     for (let r = 0; r < GRID; r++) {
       for (let c = 0; c <= GRID; c++) {
-        if (v[r][c] !== 0) {
-          const y1 = r * cell + cell * EDGE_END_GAP;
-          const y2 = (r + 1) * cell - cell * EDGE_END_GAP;
-          const x  = c * cell;
+        const s = vertical[r][c];
+        if (!s) continue;
+        if (r < BORDER || r >= GRID - BORDER || c < BORDER || c > GRID - BORDER) continue;
+        const y1 = r * cell + gap;
+        const y2 = (r + 1) * cell - gap;
+        const x  = c * cell;
+        ctx.beginPath();
+        ctx.strokeStyle = s === 1 ? "black" : "#555";
+        ctx.lineWidth   = s === 1 ? 4 : 2;
+        ctx.moveTo(x, y1);
+        ctx.lineTo(x, y2);
+        ctx.stroke();
+        if (s === 2) {
           ctx.beginPath();
-          ctx.strokeStyle = v[r][c] === 1 ? "red" : "green";
-          ctx.lineWidth = 4;
-          ctx.moveTo(x, y1);
-          ctx.lineTo(x, y2);
+          ctx.strokeStyle = "black";
+          ctx.lineWidth = 2;
+          ctx.moveTo(x - 5, (y1 + y2) / 2 - 5);
+          ctx.lineTo(x + 5, (y1 + y2) / 2 + 5);
           ctx.stroke();
         }
       }
     }
 
     // nodi
-    for (let r = 0; r <= GRID; r++) {
-      for (let c = 0; c <= GRID; c++) {
-        if (n[r][c] !== 0) {
-          const x = c * cell;
-          const y = r * cell;
-          ctx.beginPath();
-          if (n[r][c] === 1) {
-            ctx.fillStyle = "purple";
-            ctx.arc(x, y, NODE_RADIUS, 0, Math.PI * 2);
-            ctx.fill();
-          } else if (n[r][c] === 2) {
-            ctx.strokeStyle = "purple";
-            ctx.lineWidth = 2;
-            ctx.arc(x, y, NODE_RADIUS, 0, Math.PI * 2);
-            ctx.stroke();
-          }
+    for (let r = BORDER; r <= GRID - BORDER; r++) {
+      for (let c = BORDER; c <= GRID - BORDER; c++) {
+        const s = nodes[r][c];
+        if (!s) continue;
+        const x = c * cell;
+        const y = r * cell;
+        ctx.beginPath();
+        if (s === 1) {
+          ctx.fillStyle = "black";
+          ctx.arc(x, y, NODE_RADIUS, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (s === 2) {
+          ctx.strokeStyle = "black";
+          ctx.lineWidth = 2;
+          ctx.arc(x, y, NODE_RADIUS, 0, Math.PI * 2);
+          ctx.stroke();
         }
       }
     }
+    ctx.restore();
   };
 
-  const redrawBoth = (h = horizontal, v = vertical, n = nodes) => {
-    drawGridWithState(srcRef.current.getContext("2d"), h, v, n);
-    drawGridWithState(baseRef.current.getContext("2d"), h, v, n);
-  };
+  useEffect(() => { draw(); }, [scale, offset, horizontal, vertical, nodes]);
 
-  useEffect(() => { redrawBoth(); }, []);
-  useEffect(() => { redrawBoth(); }, [horizontal, vertical, nodes]);
+  const nextEdgeState = v => (v + 1) % 3;
+  const nextNodeState = v => (v + 1) % 3;
 
-  // ---------- lente ----------
-  const refreshLensView = (x, y, h = horizontal, v = vertical, n = nodes) => {
-    const bctx = baseRef.current.getContext("2d");
-    drawGridWithState(bctx, h, v, n);
-    bctx.save();
-    bctx.globalCompositeOperation = "destination-out";
-    bctx.beginPath();
-    bctx.arc(x, y, LENS_DIAM / 2, 0, Math.PI * 2);
-    bctx.fill();
-    bctx.restore();
-
-    const lctx = lensRef.current.getContext("2d");
-    lctx.clearRect(0, 0, LENS_DIAM, LENS_DIAM);
-    lctx.save();
-    lctx.beginPath();
-    lctx.arc(LENS_DIAM / 2, LENS_DIAM / 2, LENS_DIAM / 2, 0, Math.PI * 2);
-    lctx.clip();
-    lctx.drawImage(
-      srcRef.current,
-      x - LENS_DIAM / (2 * ZOOM),
-      y - LENS_DIAM / (2 * ZOOM),
-      LENS_DIAM / ZOOM,
-      LENS_DIAM / ZOOM,
-      0, 0, LENS_DIAM, LENS_DIAM
-    );
-    lctx.restore();
-
-    lensRef.current.style.left = `${x - LENS_DIAM / 2}px`;
-    lensRef.current.style.top  = `${y - LENS_DIAM / 2}px`;
-  };
-
-  // ⬇️ LOG AGGIUNTI QUI
-  const handleMove = (e) => {
-    const rect = baseRef.current.getBoundingClientRect();
-    console.log('Bounding rect:', rect);
-    console.log('Client coords:', e.clientX, e.clientY);
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    console.log('Canvas coords:', x, y);
-
-    setLensPos({ x, y });
-    refreshLensView(x, y);
-  };
-
-  // mappa un click all’interno della lente alle coordinate reali della griglia
-  const pickPoint = (x, y) => {
-    if (!showLens) return { px: x, py: y };
-    const dx = x - lensPos.x;
-    const dy = y - lensPos.y;
-    const r  = LENS_DIAM / 2;
-    if (dx * dx + dy * dy > r * r) return { px: x, py: y };
+  // --- conversione coordinate, corretta per ogni scala CSS ---
+  const toGrid = (clientX, clientY) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const scaleX = canvasRef.current.width  / rect.width;
+    const scaleY = canvasRef.current.height / rect.height;
     return {
-      px: lensPos.x + dx / ZOOM,
-      py: lensPos.y + dy / ZOOM,
+      x: (clientX - rect.left) * scaleX / scale - offset.x / scale,
+      y: (clientY - rect.top)  * scaleY / scale - offset.y / scale
     };
   };
 
-  const nextEdgeState = v => (v + 1) % 3; // 0→1→2→0
-  const nextNodeState = v => (v + 1) % 3; // 0→1→2→0
+  const toggleAt = (gx, gy) => {
+    const c = Math.min(Math.floor(gx / cell), GRID - 1);
+    const r = Math.min(Math.floor(gy / cell), GRID - 1);
+    const dx = gx - c * cell;
+    const dy = gy - r * cell;
 
-  const handleClick = (e) => {
-    const rect = baseRef.current.getBoundingClientRect();
-    const xRel = e.clientX - rect.left;
-    const yRel = e.clientY - rect.top;
-
-    // 🔑 se si clicca dentro la lente, converte le coordinate
-    const { px, py } = pickPoint(xRel, yRel);
-
-    const c = Math.min(Math.floor(px / cell), GRID - 1);
-    const r = Math.min(Math.floor(py / cell), GRID - 1);
-
-    const dx = px - c * cell;
-    const dy = py - r * cell;
-
-    // prima: nodo
-    let nodeHandled = false;
-    const nodeCol = Math.round(px / cell);
-    const nodeRow = Math.round(py / cell);
+    // nodo
+    const nodeCol = Math.round(gx / cell);
+    const nodeRow = Math.round(gy / cell);
     const nx = nodeCol * cell;
     const ny = nodeRow * cell;
-    if (Math.hypot(px - nx, py - ny) <= NODE_RADIUS + 4) {
-      const newNodes = nodes.map(row => [...row]);
-      newNodes[nodeRow][nodeCol] = nextNodeState(newNodes[nodeRow][nodeCol]);
-      setNodes(newNodes);
-      nodeHandled = true;
+    if (Math.hypot(gx - nx, gy - ny) <= NODE_RADIUS + 4) {
+      const newN = nodes.map(row => [...row]);
+      newN[nodeRow][nodeCol] = nextNodeState(newN[nodeRow][nodeCol]);
+      setNodes(newN);
+      return;
     }
 
-    if (!nodeHandled) {
-      const distLeft   = dx;
-      const distRight  = cell - dx;
-      const distTop    = dy;
-      const distBottom = cell - dy;
-      const min = Math.min(distLeft, distRight, distTop, distBottom);
-      if (min <= EDGE_SNAP) {
-        const newH = horizontal.map(row => [...row]);
-        const newV = vertical.map(row => [...row]);
-        if (min === distTop)        newH[r][c]     = nextEdgeState(newH[r][c]);
-        else if (min === distBottom) newH[r + 1][c] = nextEdgeState(newH[r + 1][c]);
-        else if (min === distLeft)   newV[r][c]     = nextEdgeState(newV[r][c]);
-        else if (min === distRight)  newV[r][c + 1] = nextEdgeState(newV[r][c + 1]);
-        setHorizontal(newH);
-        setVertical(newV);
+    // bordo
+    const distLeft   = dx;
+    const distRight  = cell - dx;
+    const distTop    = dy;
+    const distBottom = cell - dy;
+    const min = Math.min(distLeft, distRight, distTop, distBottom);
+    if (min <= EDGE_SNAP) {
+      const newH = horizontal.map(row => [...row]);
+      const newV = vertical.map(row => [...row]);
+      if (min === distTop)        newH[r][c]     = nextEdgeState(newH[r][c]);
+      else if (min === distBottom) newH[r + 1][c] = nextEdgeState(newH[r + 1][c]);
+      else if (min === distLeft)   newV[r][c]     = nextEdgeState(newV[r][c]);
+      else if (min === distRight)  newV[r][c + 1] = nextEdgeState(newV[r][c + 1]);
+      setHorizontal(newH);
+      setVertical(newV);
+    }
+  };
+
+  // --- zoom e pan mouse ---
+  const handleWheel = e => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    setScale(s => Math.min(5, Math.max(0.5, s * factor)));
+  };
+  const handleMouseDown = e => {
+    setDown({ x: e.clientX, y: e.clientY });
+    setDrag({ x: e.clientX, y: e.clientY, startX: offset.x, startY: offset.y });
+  };
+  const handleMouseMove = e => {
+    if (drag) {
+      setOffset({
+        x: drag.startX + (e.clientX - drag.x),
+        y: drag.startY + (e.clientY - drag.y)
+      });
+    }
+  };
+  const handleMouseUp = e => {
+    setDrag(null);
+    if (down) {
+      const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+      if (moved <= TAP_MAX) {
+        const { x, y } = toGrid(e.clientX, e.clientY);
+        toggleAt(x, y);
       }
     }
+    setDown(null);
+  };
 
-    // micro-move per aggiornare la lente immediatamente
-    setLensPos(prev => {
-      const fake = { x: prev.x + 1, y: prev.y + 1 };
-      refreshLensView(fake.x, fake.y, horizontal, vertical, nodes);
-      requestAnimationFrame(() =>
-        refreshLensView(prev.x, prev.y, horizontal, vertical, nodes)
-      );
-      return prev;
-    });
+  // --- pinch-to-zoom mobile ---
+  const distance = (t1, t2) =>
+    Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+
+  const handleTouchStart = e => {
+    if (e.touches.length === 2) {
+      const d = distance(e.touches[0], e.touches[1]);
+      setLastPinch({ dist: d, scale });
+    } else if (e.touches.length === 1) {
+      setDown({ x: e.touches[0].clientX, y: e.touches[0].clientY });
+      setDrag({
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        startX: offset.x,
+        startY: offset.y
+      });
+    }
+  };
+
+  const handleTouchMove = e => {
+    if (e.touches.length === 2 && lastPinch) {
+      const d = distance(e.touches[0], e.touches[1]);
+      const factor = d / lastPinch.dist;
+      setScale(Math.min(5, Math.max(0.5, lastPinch.scale * factor)));
+    } else if (e.touches.length === 1 && drag) {
+      setOffset({
+        x: drag.startX + (e.touches[0].clientX - drag.x),
+        y: drag.startY + (e.touches[0].clientY - drag.y)
+      });
+    }
+  };
+
+  const handleTouchEnd = e => {
+    if (e.touches.length < 2) setLastPinch(null);
+    if (e.touches.length === 0) {
+      setDrag(null);
+      setDown(null);
+    }
   };
 
   return (
     <div
       className="wrapper"
-      onMouseMove={handleMove}
-      onMouseEnter={() => setShowLens(true)}
-      onClick={handleClick}
-
-      // supporto touch drag
-      onTouchStart={(e) => {
-        const t = e.touches[0];
-        const rect = baseRef.current.getBoundingClientRect();
-        const x = t.clientX - rect.left;
-        const y = t.clientY - rect.top;
-        setLensPos({ x, y });
-        refreshLensView(x, y);
+      style={{
+        touchAction: "none",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        minHeight: "100vh"
       }}
-      onTouchMove={(e) => {
-        const t = e.touches[0];
-        const rect = baseRef.current.getBoundingClientRect();
-        const x = t.clientX - rect.left;
-        const y = t.clientY - rect.top;
-        setLensPos({ x, y });
-        refreshLensView(x, y);
-      }}
+      onWheel={handleWheel}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
-      <canvas ref={baseRef} width={SIZE} height={SIZE} className="base-canvas" />
-      <canvas ref={srcRef}  width={SIZE} height={SIZE} className="hidden-canvas" />
-      {showLens && (
-        <canvas
-          ref={lensRef}
-          width={LENS_DIAM}
-          height={LENS_DIAM}
-          className="lens-canvas"
-        />
-      )}
+      <canvas
+        ref={canvasRef}
+        width={SIZE}
+        height={SIZE}
+        className="base-canvas"
+        style={{ touchAction: "none" }}
+      />
     </div>
   );
 }
