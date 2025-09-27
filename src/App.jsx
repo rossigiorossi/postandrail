@@ -3,7 +3,7 @@ import "./App.css";
 
 const INNER = 10;
 const BORDER = 1;
-const GRID = INNER + 2 * BORDER;
+const GRID = INNER + 2 * BORDER;   // 12×12 con cornice
 const SIZE = 480;
 const NODE_RADIUS = 6;
 const EDGE_END_GAP = 0.02;
@@ -19,6 +19,10 @@ export default function App() {
   const [down, setDown] = useState(null);
   const [lastPinch, setLastPinch] = useState(null);
   const TAP_MAX = 6;
+
+  // Etichette “a cavallo”
+  const [topLabels]  = useState(Array.from({ length: INNER + 1 }, () => "ugo"));
+  const [leftLabels] = useState(Array.from({ length: INNER + 1 }, () => "ugo"));
 
   // Stato iniziale: contorno 10x10 attivo
   const initHorizontal = Array.from({ length: GRID + 1 }, () => Array(GRID).fill(0));
@@ -43,7 +47,7 @@ export default function App() {
 
   const cell = SIZE / GRID;
 
-  // ---------- Disegno griglia ----------
+  // ---------- Disegno griglia + etichette ----------
   const drawGrid = (ctx, zoom = 1, off = { x: 0, y: 0 }) => {
     ctx.save();
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -69,7 +73,8 @@ export default function App() {
     }
 
     const gap = cell * EDGE_END_GAP;
-    // linee
+
+    // linee attive
     for (let r = 0; r <= GRID; r++) {
       for (let c = 0; c < GRID; c++) {
         const s = horizontal[r][c];
@@ -139,24 +144,41 @@ export default function App() {
         }
       }
     }
+
+    // === Etichette a cavallo ===
+    ctx.fillStyle = "blue";
+    ctx.font = `${cell * 0.3}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    // Riga in alto: centrata sulle linee verticali
+    for (let c = 0; c <= INNER; c++) {
+      const x = (BORDER + c) * cell;           // linea verticale
+      const y = BORDER * cell - cell * 0.4;
+      ctx.fillText(topLabels[c], x, y);
+    }
+
+    // Colonna a sinistra: centrata sulle linee orizzontali
+    for (let r = 0; r <= INNER; r++) {
+      const x = BORDER * cell - cell * 0.4;
+      const y = (BORDER + r) * cell;           // linea orizzontale
+      ctx.fillText(leftLabels[r], x, y);
+    }
+    // ===========================
     ctx.restore();
   };
 
-  // ---------- Ridisegno principale e mini ----------
+  // ---------- Ridisegno ----------
   useEffect(() => {
     drawGrid(mainCanvasRef.current.getContext("2d"), scale, offset);
-
-    // Miniatura: stessa dimensione, nessuna scala extra
     const mctx = miniCanvasRef.current.getContext("2d");
     mctx.clearRect(0, 0, mctx.canvas.width, mctx.canvas.height);
     drawGrid(mctx, 1, { x: 0, y: 0 });
-  }, [scale, offset, horizontal, vertical, nodes]);
+  }, [scale, offset, horizontal, vertical, nodes, topLabels, leftLabels]);
 
-  // ---------- Interazioni ----------
   const nextEdgeState = v => (v + 1) % 3;
   const nextNodeState = v => (v + 1) % 3;
 
-  // ora accetta un parametro 'target' per usare main o mini canvas
   const toGrid = (clientX, clientY, target = mainCanvasRef) => {
     const rect = target.current.getBoundingClientRect();
     const scaleX = target.current.width  / rect.width;
@@ -262,7 +284,6 @@ export default function App() {
 
   return (
     <div className="wrapper" style={{ flexDirection: "column", gap: "10px" }}>
-      {/* mini-griglia ora cliccabile */}
       <canvas
         ref={miniCanvasRef}
         width={SIZE}
@@ -278,7 +299,6 @@ export default function App() {
           toggleAt(x, y);
         }}
       />
-      {/* canvas principale interattivo */}
       <canvas
         ref={mainCanvasRef}
         width={SIZE}
