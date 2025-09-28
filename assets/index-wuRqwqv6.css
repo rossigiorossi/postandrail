@@ -1,0 +1,1 @@
+.wrapper{display:flex;flex-direction:column;align-items:center;gap:10px;min-height:100vh;background:#fff}.mini-canvas{width:90vmin;height:90vmin;background:#fff;border:1px solid #ccc}.base-canvas{width:90vmin;height:90vmin;touch-action:none;image-rendering:pixelated}
